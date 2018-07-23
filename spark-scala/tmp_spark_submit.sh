@@ -1,0 +1,1 @@
+/opt/spark/bin/spark-submit --class cassandra_job.CassandraInteg --master local --jars commons-math3-3.6.1.jar,breeze-parent-assembly-1.0-RC2.jar,stl-decomp-4j-1.0.4-SNAPSHOT.jar,datastax_cassandra_connector.jar target/scala-2.11/cassandrainteg_2.11-1.0.jar
