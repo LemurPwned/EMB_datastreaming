@@ -1,7 +1,6 @@
 package cassandra_job
 
 import org.apache.commons.math3.distribution.TDistribution
-//import breeze.stats.distributions.StudentsT
 import org.apache.spark.sql.types.DoubleType
 import org.apache.spark.sql.functions._
 import org.apache.spark.rdd.RDD
@@ -12,60 +11,114 @@ import org.apache.spark.sql.cassandra._
 import com.datastax.spark.connector.cql.CassandraConnector 
 import scala.collection.mutable.ListBuffer
 
-import java.util.Calendar
-
 import com.github.servicenow.ds.stats.stl.SeasonalTrendLoess
 
-
-
+import java.sql.Timestamp
+import java.util.Properties
+import java.util.Collection
+import scala.collection.JavaConverters._
+import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.common.TopicPartition
+import org.apache.log4j.{LogManager, Level}
 
 object CassandraInteg {
+  // logger
+  val log = LogManager.getRootLogger
 
   def main(args: Array[String]): Unit = {
-    val logFile = "/opt/spark/README.md"
     val spark = SparkSession.builder().appName("CassandraInteg")
       .config("spark.cassandra.connection.host", "localhost")
       .config("spart.cassandra.connection.port", "9042")
-      //.setJars(Seq(System.getProperty("user.dir") + 
-      //  "/target/scala-2.11/cassandrainteg_2.11-1.0.jar"))
       .getOrCreate();
     spark.sparkContext.setLogLevel("ERROR")
-    println(s"Now database is printed out\n");
+    log.setLevel(Level.WARN)
     
     val connector = CassandraConnector(spark.sparkContext.getConf)
-    //CassandraConnector conn = CassandraConnector.apply(spark.sparkContext().conf())
-    connector.withSessionDo(session =>
-        session.execute("CREATE KEYSPACE IF NOT EXISTS anomal " +
-                         "WITH REPLICATION = {'class': 'SimpleStrategy', " +
-                                              "'replication_factor': 1}"))
-    connector.withSessionDo(session =>
-        session.execute("DROP TABLE IF EXISTS anomal.anomaly_data"))
-    connector.withSessionDo(session =>
-        session.execute("CREATE TABLE IF NOT EXISTS anomal.anomaly_data( " +
-                          "timestamp timestamp, " +
-                          "anomaly float, " +
-                          "PRIMARY KEY (timestamp));")
-    )
-    
-    val rdd = spark.sparkContext.cassandraTable("emb", "emb_data");
-    //rdd.foreach(println);
-    //println("Finished printing");
-    
-    val tmpSeries = spark.read.format("csv").option("header", "true").load("emb.csv")
-    val tmSeries1 = tmpSeries.select("timestamp", "v1")
-    val tmSeries = tmSeries1.withColumn("v1", tmSeries1("v1").cast(DoubleType)).na.fill(0.0, Seq("v1"))
-    //println(tmSeries.printSchema)
-    val anomalies = anomalyDetection(tmSeries, 21814, 30, 10000)
-    val collection = spark.sparkContext.parallelize(anomalies)
-    collection.saveToCassandra("anomal", "anomaly_data", SomeColumns("timestamp", "anomaly"))
+    prepareDatabase(connector)
+    kafkaConsumer(spark)
+    //val tm = spark.read.format("csv").option("header", "true").load("emb.csv")
+    //runADJob(spark, tm, 21814. 30, 10000) 
     spark.stop()
   }
 
+  def runADJob(spark: SparkSession,
+               dataframe: DataFrame,
+               numObs: Int,
+               period: Int,
+               anomalies: Int): Unit ={
+    log.warn("Running an anomaly detection job")
+    val tmSeries1 = dataframe.select("timestamp", "v1")
+    val tmSeries = tmSeries1.withColumn("v1", tmSeries1("v1").cast(DoubleType)).na.fill(0.0, Seq("v1"))
+    val anomaliesData = anomalyDetection(tmSeries, numObs, period, anomalies)
+    log.warn("Saving anomaly data to Cassandra...")
+    val collection = spark.sparkContext.parallelize(anomaliesData)
+    collection.saveToCassandra("anomal", "anomaly_data", SomeColumns("timestamp", "anomaly"))
+    log.warn("Finished Anomaly Detection Job...")
+  }
+
+  def prepareDatabase(connector: CassandraConnector):Unit ={
+    log.warn("Prepraing anomaly database...")  
+    connector.withSessionDo(session =>
+        session.execute("""
+                    CREATE KEYSPACE IF NOT EXISTS anomal 
+                    WITH REPLICATION = {'class': 'SimpleStrategy', 
+                                        'replication_factor': 1};
+                    """
+                    ))
+     connector.withSessionDo(session =>
+       session.execute("DROP TABLE IF EXISTS anomal.anomaly_data"))
+     connector.withSessionDo(session =>
+       session.execute("""
+                      CREATE TABLE IF NOT EXISTS anomal.anomaly_data( 
+                      timestamp timestamp, 
+                      anomaly float, 
+                      PRIMARY KEY (timestamp));
+                     """
+                     ))
+    // register the view for spark
+  }                   
+
+  def kafkaConsumer(spark: SparkSession): Unit = {
+    val properties = new Properties()
+    properties.put("bootstrap.servers", "localhost:9092")
+    properties.put("group.id", "consumer")
+    properties.put("key.deserializer", classOf[StringDeserializer])
+    properties.put("value.deserializer", classOf[StringDeserializer])
+
+    val kafkaConsumer = new KafkaConsumer[String, String](properties) 
+    kafkaConsumer.subscribe(Seq("spark_emb", "periods").asJava)
+    log.warn("Boostrapping kafka consumption...")
+    var aggregator = new ListBuffer[String]()
+    var received_vals = 0
+    
+    while (true) {
+      val results = kafkaConsumer.poll(5000).asScala
+      for (record <- results){
+        val rec = record.value().split(",")
+        val t1 = rec(0)
+        val t2 = rec(1)
+        val df = spark.read.format("org.apache.spark.sql.cassandra")
+                     .options(Map("table" -> "emb_data", "keyspace" -> "emb"))
+                     .load()
+                     .filter(s"timestamp > '$t1' AND timestamp < '$t2'")
+        println(s"Tstart $t1 Tstop $t2")
+        println(df.rdd.isEmpty());
+        if (!df.rdd.isEmpty()){
+          val period = 24
+          val length = 72
+          val anomal = 10
+          // start a anomaly detection
+          runADJob(spark, df, length, period, anomal)
+        }
+      }
+    }
+  }
 
   /**
    * Performs Anomaly Detection on a timeseries
    * @dataset: Rdd of timeseries
-   * @numberObs: number of observations i.e. length of Rdd
+     * @numberObs: number of observations i.e. length of Rdd
    * @numberObsPerPeriod: number observations in a given period, used during stl
    * @anomalyUpperBound: maximum number of expected anomalies, must be less
    *                     than 49% of observations
@@ -77,14 +130,14 @@ object CassandraInteg {
                        numberObsPerPeriod: Int,
                        anomalyUpperBound: Int,
                        significanceLevel: Double = 0.05): 
-                      List[(String, Double)] = {
-    var anomalyList = new ListBuffer[(String, Double)]()
+                      List[(Timestamp, Double)] = {
+    var anomalyList = new ListBuffer[(Timestamp, Double)]()
 
     // at least 2 periods are needed
     if (numberObs < numberObsPerPeriod*2) throw new IllegalStateException("2 periods needed." + 
                                                               "Insufficient number of observations")
     val data = dataset.select("v1").rdd.map(r=>r(0)).collect().map(_.asInstanceOf[Double])
-    val dataTm = dataset.select("timestamp").rdd.map(r=>r(0)).collect().map(_.asInstanceOf[String])
+    val dataTm = dataset.select("timestamp").rdd.map(r=>r(0)).collect().map(_.asInstanceOf[Timestamp])
     val stlBuilder = new SeasonalTrendLoess.Builder
     val stlParam = stlBuilder
                    .setPeriodLength(numberObsPerPeriod)
@@ -102,7 +155,6 @@ object CassandraInteg {
     val smoothedSeasonal = data.zip(trend).map(x => x._1 + x._2)
     //smoothedSeasonal.foreach(println)   
     
-    val R_idx: Array[(String, Double)] = new Array[(String, Double)](anomalyUpperBound)
     var numAnom = 0
     for (i <- 1 to anomalyUpperBound){
             val med = median(univariateComponent)
@@ -114,7 +166,6 @@ object CassandraInteg {
               val idMax = residual.indexOf(maxRes)
               // mistake here -- changing size of an array
               var insertTuple = (dataTm(idMax), data(idMax))
-              println(insertTuple)
               anomalyList += insertTuple
               // remove the anomaly from the dataset 
               univariateComponent = univariateComponent.take(idMax) ++ univariateComponent.drop(idMax+1)
@@ -123,9 +174,11 @@ object CassandraInteg {
               // get t-student distribution and compare against anomalyLevel
               val t = new TDistribution(numberObs-1-i).inverseCumulativeProbability(pVal)
               val thres = t*(numberObs-i)/Math.sqrt((numberObs-i-1+Math.pow(t, 2))*(numberObs-i+1)) 
-              if (maxRes > thres) numAnom = i
+              if (maxRes > thres) numAnom ++
             }            
     }
+    println("Finished detecting anomalies")
+    println(s"DETECTED ANOMALIES $numAnom") 
     anomalyList.toList
  }
 
