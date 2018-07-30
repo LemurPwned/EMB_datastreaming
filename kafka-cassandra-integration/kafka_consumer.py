@@ -1,10 +1,21 @@
+import avro.schema
+import io
+import avro.io 
 from kafka import KafkaConsumer
 from cassandra_query_system import QueryEngine
+import cassandra
 
-consumer = KafkaConsumer('emb')
+topic = 'emb'
 
-qe = QueryEngine(keyspace='emb')
+consumer = KafkaConsumer(topic)
+
+qe = QueryEngine(keyspace=topic)
+schema = avro.schema.Parse(open("emb_schema.avsc").read())
 
 for msg in consumer:
-    print(msg.value)
-    qe.store_emb_data(msg.value)
+    try:
+        qe.store_deserialized_emb_data(msg.value, schema)
+    except cassandra.WriteTimeout:
+        print("Timeout occurred...")
+        pass
+        
