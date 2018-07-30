@@ -1,8 +1,10 @@
 from kafka import KafkaProducer
+import avro.io
+import io
+import avro.schema
 import os
 import time 
-
-
+import sys
 
 anomaly_vals = [b'(na)', b'0.00', b'0']
 def emb_line_processing(line):
@@ -14,15 +16,56 @@ def emb_line_processing(line):
     flag += line
     return flag
 
+schema = avro.schema.Parse(open("emb_schema.avsc").read())
+spark_schema = avro.schema.Parse(open("cassandra_schema.avsc").read())
+
+writer = avro.io.DatumWriter(schema)
+spark_writer = avro.io.DatumWriter(spark_schema)
+# this is universal
+
 producer = KafkaProducer(bootstrap_servers='localhost:9092')
 directory = '../sensordata/EMB3_dataset_2017'
 files = os.listdir(directory)
+
+# TODO: change the schema for python kafka consumer so that it 
+# does transform that data at receiving end and can put it into the database
+period =  1 #1 day, is expressed in terms of lowest granularity ie. hours/days
+obs = 5*period # number of observations i.e how many periods to take
+tstart = -1
+tstop = -1
+agg_count = 0
 
 for filename in files:
     if not filename.endswith('.csv'):
         continue
     with open(os.path.join(directory, filename), 'rb') as f:
-        for line in f:
+        for line in f:                
+            if agg_count == 0:
+                # this is a first timestamp for spark
+                spark_msg = line.decode('utf-8').split(',')
+                tstart = spark_msg[0] + " " + spark_msg[1]
             future = producer.send('emb', emb_line_processing(line))
             future.get(timeout=10)
-            time.sleep(1)
+            time.sleep(0.5)
+
+            agg_count += 1
+            if (agg_count == obs): 
+                # this is a second timestamp for spark
+                spark_msg = line.decode('utf-8').split(',')
+                tstop = spark_msg[0] + " " + spark_msg[1]
+                bytes_writer = io.BytesIO()
+                encoder = avro.io.BinaryEncoder(bytes_writer)
+                spark_writer.write({"timestamp_start": tstart, 
+                              "timestamp_stop": tstop,
+                              "period": period,
+                              "observations": obs}, encoder)
+                raw_bytes = bytes_writer.getvalue()
+                future = producer.send('spark_emb', raw_bytes)
+                future.get(timeout=10)
+                print(tstart, tstop, period, obs)
+                # zero out the msg
+                agg_count = 0
+                tstart = -1
+                tstop = -1
+                print("Sent to spark")
+
