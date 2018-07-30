@@ -1,6 +1,9 @@
 from datetime import datetime
 from cassandra.cluster import Cluster
 
+import avro.schema
+import io
+import avro.io
 
 class QueryEngine:
     def __init__(self, ip=None, keyspace='emb'):
@@ -11,6 +14,19 @@ class QueryEngine:
             self.cluster = Cluster()
         self.session = self.cluster.connect(keyspace) # this is a keysapce of emb data
         
+
+    def store_deserialized_emb_data(self, msg, schema):
+        query_content = """
+            INSERT INTO emb_data (id, flag, timestamp, v1, v2, v3, v4, v5)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        bytes_reader = io.BytesIO(msg)
+        decoder = avro.io.BinaryDecoder(bytes_reader)
+        reader = avro.io.DatumReader(schema)
+        dmsg = reader.read(decoder)
+        print(dmsg)
+        self.session.execute(query_content, (1, dmsg['flag'], dmsg['timestamp'], 
+                                            dmsg['v1'], dmsg['v2'], dmsg['v3'], dmsg['v4'], dmsg['v5']))
 
     def store_emb_data(self, line):
         query_content = """
@@ -33,13 +49,14 @@ class QueryEngine:
             except IndexError:
                 self.session.execute(query_content, (self.id, None, None,
                                             None, None, None, None, None))
-            self.id += 1
+            
+            #self.id += 1
             return
         self.session.execute(query_content, (self.id, 
                                             parts[0], 
                                             datetime.strptime(parts[1]+' '+parts[2], '%Y-%m-%d %H:%M:%S'),
                                             parts[3],parts[4],parts[5],parts[6],parts[7]))
-        self.id += 1
+        #self.id += 1
 
     def select_all(self):
         res = self.session.execute("SELECT * FROM emb_data");
