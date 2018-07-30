@@ -17,14 +17,31 @@ import java.sql.Timestamp
 import java.util.Properties
 import java.util.Collection
 import scala.collection.JavaConverters._
+
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.errors.TimeoutException
+import org.apache.kafka.common.serialization.{ByteArrayDeserializer, StringDeserializer}
+
+
 import org.apache.log4j.{LogManager, Level}
+
+import org.apache.avro.io.{Decoder, DecoderFactory, DatumReader}
+import org.apache.avro.specific.SpecificDatumReader
+import org.apache.avro.generic.GenericRecord
+import org.apache.avro.Schema
+
+
+import scala.io.Source
+import anomalyStruct.AnomalyData
 
 object CassandraInteg {
   // logger
   val log = LogManager.getRootLogger
+  val schemaStr = Source.fromFile("cassandra_schema.avsc").mkString
+  val schema = new Schema.Parser().parse(schemaStr)
+
 
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder().appName("CassandraInteg")
@@ -52,8 +69,10 @@ object CassandraInteg {
     val tmSeries = tmSeries1.withColumn("v1", tmSeries1("v1").cast(DoubleType)).na.fill(0.0, Seq("v1"))
     val anomaliesData = anomalyDetection(tmSeries, numObs, period, anomalies)
     log.warn("Saving anomaly data to Cassandra...")
-    val collection = spark.sparkContext.parallelize(anomaliesData)
-    collection.saveToCassandra("anomal", "anomaly_data", SomeColumns("timestamp", "anomaly"))
+    if (anomaliesData.size != 0){
+       val collection = spark.sparkContext.parallelize(anomaliesData)
+       collection.saveToCassandra("anomal", "anomaly_data", SomeColumns("timestamp", "anomaly"))
+    }
     log.warn("Finished Anomaly Detection Job...")
   }
 
@@ -84,35 +103,47 @@ object CassandraInteg {
     properties.put("bootstrap.servers", "localhost:9092")
     properties.put("group.id", "consumer")
     properties.put("key.deserializer", classOf[StringDeserializer])
-    properties.put("value.deserializer", classOf[StringDeserializer])
+    properties.put("value.deserializer", classOf[ByteArrayDeserializer])
+    properties.put("auto.commit.interval.ms","8000")
 
-    val kafkaConsumer = new KafkaConsumer[String, String](properties) 
-    kafkaConsumer.subscribe(Seq("spark_emb", "periods").asJava)
+    val kafkaConsumer = new KafkaConsumer[String, Array[Byte]](properties)
+    kafkaConsumer.subscribe(Seq("spark_emb").asJava)
     log.warn("Boostrapping kafka consumption...")
-    var aggregator = new ListBuffer[String]()
-    var received_vals = 0
     
     while (true) {
-      val results = kafkaConsumer.poll(5000).asScala
+      val results = kafkaConsumer.poll(2000).asScala
       for (record <- results){
-        val rec = record.value().split(",")
-        val t1 = rec(0)
-        val t2 = rec(1)
-        val df = spark.read.format("org.apache.spark.sql.cassandra")
-                     .options(Map("table" -> "emb_data", "keyspace" -> "emb"))
-                     .load()
-                     .filter(s"timestamp > '$t1' AND timestamp < '$t2'")
-        println(s"Tstart $t1 Tstop $t2")
-        println(df.rdd.isEmpty());
-        if (!df.rdd.isEmpty()){
-          val period = 24
-          val length = 72
-          val anomal = 10
-          // start a anomaly detection
-          runADJob(spark, df, length, period, anomal)
+        try{ 
+          val data = parseData(record.value())
+          val df = spark.read.format("org.apache.spark.sql.cassandra")
+                             .options(Map("table"->"emb_data", "keyspace"->"emb"))
+                             .load()
+                             .filter(s"timestamp >= '${data.timestampStart}' AND" 
+                               +s" timestamp <= '${data.timestampStop}'")
+          log.warn(data.toString)
+          log.warn(df.rdd.isEmpty)
+          if (!df.rdd.isEmpty()){
+            log.warn("Processing for: " + data.toString)
+            val anomalUpperBound = 10 // Hardcoded, idk what it should be
+            runADJob(spark, df, data.observations, data.period, anomalUpperBound)
+          }
+          kafkaConsumer.commitSync
+        }
+        catch {
+          case timeOutEx: TimeoutException => println("Timeout")
         }
       }
     }
+  }
+
+  def parseData(msg: Array[Byte]): AnomalyData = {
+    val reader = new SpecificDatumReader[GenericRecord](schema)
+    val decoder = DecoderFactory.get().binaryDecoder(msg, null)
+    val data = reader.read(null, decoder)
+    new AnomalyData(data.get("timestamp_start").toString,
+                    data.get("timestamp_stop").toString,
+                    data.get("period").asInstanceOf[Int],
+                    data.get("observations").asInstanceOf[Int])
   }
 
   /**
@@ -138,6 +169,11 @@ object CassandraInteg {
                                                               "Insufficient number of observations")
     val data = dataset.select("v1").rdd.map(r=>r(0)).collect().map(_.asInstanceOf[Double])
     val dataTm = dataset.select("timestamp").rdd.map(r=>r(0)).collect().map(_.asInstanceOf[Timestamp])
+   
+    println(data.size, dataTm.size, numberObs)
+    assert(data.size == dataTm.size)
+    assert(data.size == numberObs)
+
     val stlBuilder = new SeasonalTrendLoess.Builder
     val stlParam = stlBuilder
                    .setPeriodLength(numberObsPerPeriod)
@@ -174,11 +210,11 @@ object CassandraInteg {
               // get t-student distribution and compare against anomalyLevel
               val t = new TDistribution(numberObs-1-i).inverseCumulativeProbability(pVal)
               val thres = t*(numberObs-i)/Math.sqrt((numberObs-i-1+Math.pow(t, 2))*(numberObs-i+1)) 
-              if (maxRes > thres) numAnom ++
+              if (maxRes > thres) numAnom = i
             }            
     }
-    println("Finished detecting anomalies")
-    println(s"DETECTED ANOMALIES $numAnom") 
+    log.warn("Finished detecting anomalies")
+    log.warn(s"DETECTED ANOMALIES $numAnom") 
     anomalyList.toList
  }
 
