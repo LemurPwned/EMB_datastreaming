@@ -4,7 +4,7 @@
 		module="cassandrainteg_2.11"
 		revision="1.0"
 		status="integration"
-		publication="20180723140948"
+		publication="20180726150317"
 	>
 		<description>
 		CassandraInteg
@@ -36,8 +36,9 @@
 		<dependency org="datastax" name="spark-cassandra-connector" rev="2.3.1-s_2.11" conf="compile->default(compile)"/>
 		<dependency org="com.github.servicenow.stl4j" name="stl-decomp-4j" rev="1.0.3" conf="compile->default(compile)"/>
 		<dependency org="org.apache.commons" name="commons-math3" rev="3.2" conf="compile->default(compile)"/>
-		<dependency org="org.scalanlp" name="breeze_2.11" rev="0.13.2" conf="compile->default(compile)"/>
-		<dependency org="org.scalanlp" name="breeze-natives_2.11" rev="0.13.2" conf="compile->default(compile)"/>
-		<dependency org="org.scalanlp" name="breeze-viz_2.11" rev="0.13.2" conf="compile->default(compile)"/>
+		<dependency org="org.apache.kafka" name="kafka_2.11" rev="1.1.1" conf="compile->default(compile)"/>
+		<dependency org="org.apache.kafka" name="kafka-clients" rev="1.1.1" conf="compile->default(compile)"/>
+		<dependency org="org.apache.avro" name="avro" rev="1.8.2" conf="compile->default(compile)"/>
+		<dependency org="io.confluent" name="kafka-avro-serializer" rev="3.2.1" conf="compile->default(compile)"/>
 	</dependencies>
 </ivy-module>

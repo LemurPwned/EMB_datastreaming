@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS emb.emb_data
         v3 float,
         v4 float,
         v5 float,
-        PRIMARY KEY (id)
-);
+        PRIMARY KEY (id, timestamp)
+) WITH CLUSTERING ORDER BY (timestamp ASC);
 """
 drop = """
     DROP TABLE IF EXISTS emb.emb_data;
