@@ -1,0 +1,11 @@
+{
+	"namespace": "cassandra_schema.avro",
+	"type": "record",
+	"name": "cass_record",
+	"fields": [
+		{"name": "timestamp_start", "type": "string"},
+		{"name": "timestamp_stop", "type": "string"},
+		{"name": "period", "type": "int"},
+		{"name": "observations", "type": "int"}
+	]
+}
