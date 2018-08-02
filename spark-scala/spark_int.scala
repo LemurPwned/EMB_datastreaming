@@ -46,7 +46,8 @@ object CassandraInteg {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder().appName("CassandraInteg")
       .config("spark.cassandra.connection.host", "localhost")
-      .config("spart.cassandra.connection.port", "9042")
+      .config("spark.cassandra.connection.port", "9042")
+      .config("spark.cassandra.connection.connections_per_executor_max", "3")
       .getOrCreate();
     spark.sparkContext.setLogLevel("ERROR")
     log.setLevel(Level.WARN)
