@@ -51,8 +51,8 @@ object CassandraInteg {
     spark.sparkContext.setLogLevel("ERROR")
     log.setLevel(Level.WARN)
     
-    val connector = CassandraConnector(spark.sparkContext.getConf)
-    prepareDatabase(connector)
+    //val connector = CassandraConnector(spark.sparkContext.getConf)
+    //prepareDatabase(connector)
     kafkaConsumer(spark)
     //val tm = spark.read.format("csv").option("header", "true").load("emb.csv")
     //runADJob(spark, tm, 21814. 30, 10000) 
