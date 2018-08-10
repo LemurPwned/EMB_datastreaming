@@ -44,7 +44,7 @@ object CassandraInteg {
   def main(args: Array[String]): Unit = {
     val resourceManagerAddr = args(0)
     val spark = SparkSession.builder().appName("CassandraInteg")
-      .config("spark.cassandra.connection.host", resourceManagerAddr)
+      .config("spark.cassandra.connection.host", "localhost")
       .config("spark.cassandra.connection.port", "9042")
       .config("spark.cassandra.connection.connections_per_executor_max", "3")
       .getOrCreate();
