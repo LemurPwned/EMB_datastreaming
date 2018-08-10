@@ -40,10 +40,11 @@ import anomalyStruct.AnomalyData
 object CassandraInteg {
   // logger
   val log = LogManager.getRootLogger
-
+  
   def main(args: Array[String]): Unit = {
+    val resourceManagerAddr = args(0)
     val spark = SparkSession.builder().appName("CassandraInteg")
-      .config("spark.cassandra.connection.host", "localhost")
+      .config("spark.cassandra.connection.host", resourceManagerAddr)
       .config("spark.cassandra.connection.port", "9042")
       .config("spark.cassandra.connection.connections_per_executor_max", "3")
       .getOrCreate();
@@ -51,7 +52,7 @@ object CassandraInteg {
     log.setLevel(Level.WARN)
     //val connector = CassandraConnector(spark.sparkContext.getConf)
     //prepareDatabase(connector)
-    kafkaConsumer(spark)
+    kafkaConsumer(spark, resourceManagerAddr)
     //val tm = spark.read.format("csv").option("header", "true").load("emb.csv")
     //runADJob(spark, tm, 21814. 30, 10000) 
     spark.stop()
@@ -96,11 +97,9 @@ object CassandraInteg {
     // register the view for spark
   }                   
 
-  def kafkaConsumer(spark: SparkSession): Unit = {
-    val rMHpath= "hostname.txt"
-    val resourceManagerHostnameString = Source.fromFile(rMHpath).mkString
+  def kafkaConsumer(spark: SparkSession, resourceManagerAddr: String): Unit = {
     val properties = new Properties()
-    properties.put("bootstrap.servers", resourceManagerHostnameString+":9092")
+    properties.put("bootstrap.servers", resourceManagerAddr+":9092")
     properties.put("group.id", "consumer")
     properties.put("key.deserializer", classOf[StringDeserializer])
     properties.put("value.deserializer", classOf[ByteArrayDeserializer])
