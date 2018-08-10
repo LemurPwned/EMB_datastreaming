@@ -1,4 +1,4 @@
-[0m[[0m[31merror[0m] [0m[0m/home/jakub/EMB_datastreaming/spark-scala/spark_int.scala:122:16: not found: value dff[0m
-[0m[[0m[31merror[0m] [0m[0m          if (!dff.rdd.isEmpty()){[0m
-[0m[[0m[31merror[0m] [0m[0m               ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/jakub/EMB_datastreaming/spark-scala/spark_int.scala:41:18: not found: value SparkFiles[0m
+[0m[[0m[31merror[0m] [0m[0m  val filePath = SparkFiles.get("cassandra_schema.avsc")[0m
+[0m[[0m[31merror[0m] [0m[0m                 ^[0m
 [0m[[0m[31merror[0m] [0m[0mone error found[0m

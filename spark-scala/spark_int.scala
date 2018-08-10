@@ -1,6 +1,7 @@
 package cassandra_job
 
 import org.apache.commons.math3.distribution.TDistribution
+import org.apache.spark.SparkFiles
 import org.apache.spark.sql.types.DoubleType
 import org.apache.spark.sql.functions._
 import org.apache.spark.rdd.RDD
@@ -38,8 +39,9 @@ import anomalyStruct.AnomalyData
 
 object CassandraInteg {
   // logger
+  val filePath = SparkFiles.get("cassandra_schema.avsc")
   val log = LogManager.getRootLogger
-  val schemaStr = Source.fromFile("cassandra_schema.avsc").mkString
+  val schemaStr = Source.fromFile(filePath).mkString
   val schema = new Schema.Parser().parse(schemaStr)
 
 
@@ -51,7 +53,7 @@ object CassandraInteg {
       .getOrCreate();
     spark.sparkContext.setLogLevel("ERROR")
     log.setLevel(Level.WARN)
-    
+    log.warn("SCHEMA PATH " + filePath)
     //val connector = CassandraConnector(spark.sparkContext.getConf)
     //prepareDatabase(connector)
     kafkaConsumer(spark)
