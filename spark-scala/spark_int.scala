@@ -39,11 +39,7 @@ import anomalyStruct.AnomalyData
 
 object CassandraInteg {
   // logger
-  val filePath = SparkFiles.get("cassandra_schema.avsc")
   val log = LogManager.getRootLogger
-  val schemaStr = Source.fromFile(filePath).mkString
-  val schema = new Schema.Parser().parse(schemaStr)
-
 
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder().appName("CassandraInteg")
@@ -53,7 +49,6 @@ object CassandraInteg {
       .getOrCreate();
     spark.sparkContext.setLogLevel("ERROR")
     log.setLevel(Level.WARN)
-    log.warn("SCHEMA PATH " + filePath)
     //val connector = CassandraConnector(spark.sparkContext.getConf)
     //prepareDatabase(connector)
     kafkaConsumer(spark)
@@ -113,11 +108,16 @@ object CassandraInteg {
     kafkaConsumer.subscribe(Seq("spark_emb").asJava)
     log.warn("Boostrapping kafka consumption...")
     
+    val filePath = SparkFiles.get("cassandra_schema.avsc")
+    val schemaStr = Source.fromFile(filePath).mkString
+    val schema = new Schema.Parser().parse(schemaStr)
+
+    log.warn("SCHEMA PATH " + filePath)
     while (true) {
       val results = kafkaConsumer.poll(2000).asScala
       for (record <- results){
         try{ 
-          val data = parseData(record.value())
+          val data = parseData(record.value(), schema)
           val df = spark.read.format("org.apache.spark.sql.cassandra")
                              .options(Map("table"->"emb_data", "keyspace"->"emb"))
                              .load()
@@ -139,7 +139,7 @@ object CassandraInteg {
     }
   }
 
-  def parseData(msg: Array[Byte]): AnomalyData = {
+  def parseData(msg: Array[Byte], schema: Schema): AnomalyData = {
     val reader = new SpecificDatumReader[GenericRecord](schema)
     val decoder = DecoderFactory.get().binaryDecoder(msg, null)
     val data = reader.read(null, decoder)
