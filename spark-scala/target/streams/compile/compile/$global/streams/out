@@ -1,4 +1,4 @@
-[0m[[0m[31merror[0m] [0m[0m/home/jakub/EMB_datastreaming/spark-scala/spark_int.scala:41:18: not found: value SparkFiles[0m
-[0m[[0m[31merror[0m] [0m[0m  val filePath = SparkFiles.get("cassandra_schema.avsc")[0m
-[0m[[0m[31merror[0m] [0m[0m                 ^[0m
+[0m[[0m[31merror[0m] [0m[0m/home/jakub/EMB_datastreaming/spark-scala/spark_int.scala:111:11: value sc is not a member of org.apache.spark.sql.SparkSession[0m
+[0m[[0m[31merror[0m] [0m[0m    spark.sc.addFile("cassandra_schema.avsc")[0m
+[0m[[0m[31merror[0m] [0m[0m          ^[0m
 [0m[[0m[31merror[0m] [0m[0mone error found[0m

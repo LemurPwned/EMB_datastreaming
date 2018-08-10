@@ -108,6 +108,7 @@ object CassandraInteg {
     kafkaConsumer.subscribe(Seq("spark_emb").asJava)
     log.warn("Boostrapping kafka consumption...")
     
+    spark.sparkContext.addFile("cassandra_schema.avsc")
     val filePath = SparkFiles.get("cassandra_schema.avsc")
     val schemaStr = Source.fromFile(filePath).mkString
     val schema = new Schema.Parser().parse(schemaStr)
