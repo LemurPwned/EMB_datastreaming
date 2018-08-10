@@ -172,8 +172,13 @@ object CassandraInteg {
     val dataTm = dataset.select("timestamp").rdd.map(r=>r(0)).collect().map(_.asInstanceOf[Timestamp])
    
     println(data.size, dataTm.size, numberObs)
-    assert(data.size == dataTm.size)
-    assert(data.size == numberObs)
+    try{
+	assert(data.size == dataTm.size)
+	assert(data.size == numberObs)
+    }
+    catch {
+	case assertEx: AssertionError => println("Size mismatch in Cassandra database")
+    }
 
     val stlBuilder = new SeasonalTrendLoess.Builder
     val stlParam = stlBuilder
