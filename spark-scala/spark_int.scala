@@ -97,8 +97,10 @@ object CassandraInteg {
   }                   
 
   def kafkaConsumer(spark: SparkSession): Unit = {
+    val rMHpath= "hostname.txt"
+    val resourceManagerHostnameString = Source.fromFile(rMHpath).mkString
     val properties = new Properties()
-    properties.put("bootstrap.servers", "localhost:9092")
+    properties.put("bootstrap.servers", resourceManagerHostnameString+":9092")
     properties.put("group.id", "consumer")
     properties.put("key.deserializer", classOf[StringDeserializer])
     properties.put("value.deserializer", classOf[ByteArrayDeserializer])
