@@ -69,6 +69,7 @@ for filename in files:
 
             agg_count += 1
             if (agg_count == obs): 
+                time.sleep(10) # wait for messages to be logged in Cassandra
                 # this is a second timestamp for spark
                 tstop = to_send['timestamp'] 
                 bytes_writer = io.BytesIO()
@@ -86,4 +87,4 @@ for filename in files:
                 tstart = -1
                 tstop = -1
                 print("Sent to spark")
-
+		

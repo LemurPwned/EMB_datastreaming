@@ -103,3 +103,6 @@ reload
 package
 [
 package
+assembly
+.s
+package

@@ -50,8 +50,8 @@ object CassandraInteg {
       .getOrCreate();
     spark.sparkContext.setLogLevel("ERROR")
     log.setLevel(Level.WARN)
-    //val connector = CassandraConnector(spark.sparkContext.getConf)
-    //prepareDatabase(connector)
+    val connector = CassandraConnector(spark.sparkContext.getConf)
+    prepareDatabase(connector)
     kafkaConsumer(spark, resourceManagerAddr)
     //val tm = spark.read.format("csv").option("header", "true").load("emb.csv")
     //runADJob(spark, tm, 21814. 30, 10000) 
@@ -64,11 +64,11 @@ object CassandraInteg {
                period: Int,
                anomalies: Int): Unit ={
     log.warn("Running an anomaly detection job")
-    val tmSeries1 = dataframe.select("timestamp", "v1")
-    val tmSeries = tmSeries1.withColumn("v1", tmSeries1("v1").cast(DoubleType)).na.fill(0.0, Seq("v1"))
+    val tmSeries = dataframe.withColumn("v1", dataframe("v1").cast(DoubleType)).na.fill(0.0, Seq("v1"))
     val anomaliesData = anomalyDetection(tmSeries, numObs, period, anomalies)
-    log.warn("Saving anomaly data to Cassandra...")
-    if (anomaliesData.size != 0){
+
+    if (anomaliesData.size != 0){    
+       log.warn("Saving anomaly data to Cassandra...")
        val collection = spark.sparkContext.parallelize(anomaliesData)
        collection.saveToCassandra("anomal", "anomaly_data", SomeColumns("timestamp", "anomaly"))
     }
@@ -122,9 +122,11 @@ object CassandraInteg {
           val df = spark.read.format("org.apache.spark.sql.cassandra")
                              .options(Map("table"->"emb_data", "keyspace"->"emb"))
                              .load()
+			     .select("timestamp", "v1")
                              .filter(s"timestamp >= '${data.timestampStart}' AND" 
                                +s" timestamp <= '${data.timestampStop}'")
           log.warn(data.toString)
+	  log.warn(df.count)
           log.warn(df.rdd.isEmpty)
           if (!df.rdd.isEmpty()){
             log.warn("Processing for: " + data.toString)
@@ -194,11 +196,9 @@ object CassandraInteg {
     val trend = stl.getTrend()
     
     //remove seasonal component from data and median to create univariate remainder
-    val med = dataset.stat.approxQuantile("v1", Array(0.5), 0.001)(0) // get median
-     
+    val med = median(data)
     var univariateComponent = data.zip(seasonal).map(x => x._1 - x._2 - med)
     val smoothedSeasonal = data.zip(trend).map(x => x._1 + x._2)
-    //smoothedSeasonal.foreach(println)   
     
     var numAnom = 0
     for (i <- 1 to anomalyUpperBound){
